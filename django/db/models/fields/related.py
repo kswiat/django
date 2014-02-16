@@ -96,10 +96,32 @@ signals.class_prepared.connect(do_pending_lookups)
 class RelatedField(Field):
     def check(self, **kwargs):
         errors = super(RelatedField, self).check(**kwargs)
+        errors.extend(self._check_related_name_is_valid())
         errors.extend(self._check_relation_model_exists())
         errors.extend(self._check_referencing_to_swapped_model())
         errors.extend(self._check_clashes())
         return errors
+
+    def _check_related_name_is_valid(self):
+        import re
+        related_name_re = re.compile('^[a-zA-Z_][a-zA-Z0-9_]*$')
+        related_name_with_plus_re = re.compile('^([a-zA-Z_][a-zA-Z0-9_]*)*\+$')
+        related_name = self.rel.related_name
+        if related_name and not \
+                (re.match(related_name_re, related_name) or (re.match(related_name_with_plus_re, related_name))):
+            return [
+                checks.Error(
+                    'The %s is invalid related_name for field %s.%s' %
+                    (related_name, self.model._meta.object_name, self.name),
+                    hint=('Valid related name must begin with a letter or underscore [a-zA-Z_], '
+                          'rest characters can be letters, numbers or underscores [a-zA-Z0-9_]. '
+                          'If you would prefer Django not to create a backwards relation, '
+                          'set related_name to + or end it with +.'),
+                    obj=self,
+                    id='E031'
+                )
+            ]
+        return []
 
     def _check_relation_model_exists(self):
         rel_is_missing = self.rel.to not in apps.get_models()
