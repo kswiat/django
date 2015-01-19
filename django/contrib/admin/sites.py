@@ -1,4 +1,5 @@
 from functools import update_wrapper
+from django.contrib.admin.checks import AdminSiteChecks
 from django.http import Http404, HttpResponseRedirect
 from django.contrib.admin import ModelAdmin, actions
 from django.contrib.auth import REDIRECT_FIELD_NAME
@@ -54,6 +55,7 @@ class AdminSite(object):
     logout_template = None
     password_change_template = None
     password_change_done_template = None
+    checks_class = AdminSiteChecks
 
     def __init__(self, name='admin'):
         self._registry = {}  # model_class class -> admin_class instance

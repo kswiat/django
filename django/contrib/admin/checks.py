@@ -5,15 +5,21 @@ from itertools import chain
 
 from django.contrib.admin.utils import get_fields_from_path, NotRelationField, flatten
 from django.core import checks
-from django.core.exceptions import FieldDoesNotExist
 from django.db import models
+from django.db.models.fields import FieldDoesNotExist
 from django.forms.models import BaseModelForm, _get_foreign_key, BaseModelFormSet
+from django.apps import apps
+from django.conf import settings
 
 
 def check_admin_app(**kwargs):
-    from django.contrib.admin.sites import system_check_errors
+    from django.contrib.admin.sites import site
 
-    return system_check_errors
+    a = list(chain.from_iterable(
+        model_admin.check(model, **kwargs)
+        for model, model_admin in site._registry.items()
+    ))
+    return a.append(site)
 
 
 class BaseModelAdminChecks(object):
@@ -53,7 +59,7 @@ class BaseModelAdminChecks(object):
 
         try:
             field = model._meta.get_field(field_name)
-        except FieldDoesNotExist:
+        except models.FieldDoesNotExist:
             return refer_to_missing_field(field=field_name, option=label,
                                           model=model, obj=cls, id='admin.E002')
         else:
@@ -130,8 +136,6 @@ class BaseModelAdminChecks(object):
                     id='admin.E011',
                 )
             ]
-        elif not isinstance(fieldset[1]['fields'], (list, tuple)):
-            return must_be('a list or tuple', option="fieldsets[1]['fields']", obj=cls, id='admin.E008')
 
         fields = flatten(fieldset[1]['fields'])
         if len(fields) != len(set(fields)):
@@ -170,7 +174,7 @@ class BaseModelAdminChecks(object):
         else:
             try:
                 field = model._meta.get_field(field_name)
-            except FieldDoesNotExist:
+            except models.FieldDoesNotExist:
                 # If we can't find a field on the model that matches, it could
                 # be an extra field on the form.
                 return []
@@ -250,7 +254,7 @@ class BaseModelAdminChecks(object):
 
         try:
             field = model._meta.get_field(field_name)
-        except FieldDoesNotExist:
+        except models.FieldDoesNotExist:
             return refer_to_missing_field(field=field_name, option=label,
                                           model=model, obj=cls, id='admin.E019')
         else:
@@ -279,7 +283,7 @@ class BaseModelAdminChecks(object):
 
         try:
             field = model._meta.get_field(field_name)
-        except FieldDoesNotExist:
+        except models.FieldDoesNotExist:
             return refer_to_missing_field(field=field_name, option=label,
                                           model=model, obj=cls, id='admin.E022')
         else:
@@ -359,7 +363,7 @@ class BaseModelAdminChecks(object):
 
         try:
             field = model._meta.get_field(field_name)
-        except FieldDoesNotExist:
+        except models.FieldDoesNotExist:
             return refer_to_missing_field(field=field_name, option=label,
                                           model=model, obj=cls, id='admin.E027')
         else:
@@ -396,7 +400,7 @@ class BaseModelAdminChecks(object):
 
         try:
             model._meta.get_field(field_name)
-        except FieldDoesNotExist:
+        except models.FieldDoesNotExist:
             return refer_to_missing_field(field=field_name, option=label,
                                           model=model, obj=cls, id='admin.E030')
         else:
@@ -441,7 +445,7 @@ class BaseModelAdminChecks(object):
 
             try:
                 model._meta.get_field(field_name)
-            except FieldDoesNotExist:
+            except models.FieldDoesNotExist:
                 return refer_to_missing_field(field=field_name, option=label,
                                               model=model, obj=cls, id='admin.E033')
             else:
@@ -470,7 +474,7 @@ class BaseModelAdminChecks(object):
         else:
             try:
                 model._meta.get_field(field_name)
-            except FieldDoesNotExist:
+            except models.FieldDoesNotExist:
                 return [
                     checks.Error(
                         "The value of '%s' is not a callable, an attribute of '%s', or an attribute of '%s.%s'." % (
@@ -583,7 +587,7 @@ class ModelAdminChecks(BaseModelAdminChecks):
             # getattr(model, item) could be an X_RelatedObjectsDescriptor
             try:
                 field = model._meta.get_field(item)
-            except FieldDoesNotExist:
+            except models.FieldDoesNotExist:
                 try:
                     field = getattr(model, item)
                 except AttributeError:
@@ -615,7 +619,7 @@ class ModelAdminChecks(BaseModelAdminChecks):
         else:
             try:
                 model._meta.get_field(item)
-            except FieldDoesNotExist:
+            except models.FieldDoesNotExist:
                 return [
                     # This is a deliberate repeat of E108; there's more than one path
                     # required to test this condition.
@@ -764,8 +768,8 @@ class ModelAdminChecks(BaseModelAdminChecks):
 
     def _check_list_editable_item(self, cls, model, field_name, label):
         try:
-            field = model._meta.get_field(field_name)
-        except FieldDoesNotExist:
+            field = model._meta.get_field_by_name(field_name)[0]
+        except models.FieldDoesNotExist:
             return refer_to_missing_field(field=field_name, option=label,
                                           model=model, obj=cls, id='admin.E121')
         else:
@@ -835,7 +839,7 @@ class ModelAdminChecks(BaseModelAdminChecks):
         else:
             try:
                 field = model._meta.get_field(cls.date_hierarchy)
-            except FieldDoesNotExist:
+            except models.FieldDoesNotExist:
                 return refer_to_missing_field(option='date_hierarchy',
                                               field=cls.date_hierarchy,
                                               model=model, obj=cls, id='admin.E127')
@@ -968,3 +972,50 @@ def refer_to_missing_field(field, option, model, obj, id):
             id=id,
         ),
     ]
+
+
+class AdminSiteChecks(object):
+    def check(self):
+        errors = []
+        errors.extend(self._check_needed_apps())
+        errors.extend(self._check_auth_context_processor())
+
+        return errors
+
+    def _check_needed_apps(self):
+        """
+        Check that all apps needed to run the admin have been correctly installed.
+        """
+        needed_apps = (
+            'django.contrib.admin',
+            'django.contrib.contenttypes',
+        )
+        errors = []
+        for app in needed_apps:
+            if not apps.is_installed(app):
+                errors.append(
+                    checks.Error(
+                        "'%s' app must be installed in order to use the admin application.",
+                        hint="Put '%s' in your INSTALLED_APPS setting.",
+                        obj=self,
+                        id='admin.E036',
+                    )
+                )
+        return errors
+
+    def _check_auth_context_processor(self):
+        """
+        Check that 'django.contrib.auth.context_processors.auth' or a custom auth context processor
+        has been put in the TEMPLATE_CONTEXT_PROCESSORS setting.
+        """
+        auth_context_processor = 'django.contrib.auth.context_processors.auth'
+        if auth_context_processor not in settings.TEMPLATE_CONTEXT_PROCESSORS:
+            return [
+                checks.Warning(
+                    "TEMPLATE_CONTEXT_PROCESSORS settings does not include %s." % auth_context_processor,
+                    hint="Put %s in your TEMPLATE_CONTEXT_PROCESSORS setting or specify a custom one."
+                         % auth_context_processor,
+                    obj=self,
+                    id='admin.E037',
+                )
+            ]
