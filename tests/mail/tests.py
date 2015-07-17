@@ -20,6 +20,7 @@ from django.core.mail import (
 from django.core.mail.backends import console, dummy, filebased, locmem, smtp
 from django.core.mail.message import BadHeaderError
 from django.test import SimpleTestCase, override_settings
+from django.utils._os import upath
 from django.utils.encoding import force_bytes, force_text
 from django.utils.six import PY3, StringIO, binary_type
 from django.utils.translation import ugettext_lazy
@@ -304,6 +305,18 @@ class MailTests(HeadersCheckMixin, SimpleTestCase):
         message = message_from_bytes(msg_bytes)
         payload = message.get_payload()
         self.assertEqual(payload[1].get_filename(), 'une pièce jointe.pdf')
+
+    def test_attach_file_text(self):
+        email = EmailMessage('subject', 'body', 'from@example.com', ['to@example.com'])
+        email.attach_file(os.path.join(os.path.dirname(upath(__file__)), 'file.txt'))
+        msgs_sent_num = email.send()
+        self.assertEqual(msgs_sent_num, 1)
+
+    def test_attach_file_binary(self):
+        email = EmailMessage('subject', 'body', 'from@example.com', ['to@example.com'])
+        email.attach_file(os.path.join(os.path.dirname(upath(__file__)), 'file.png'))
+        msgs_sent_num = email.send()
+        self.assertEqual(msgs_sent_num, 1)
 
     def test_dummy_backend(self):
         """

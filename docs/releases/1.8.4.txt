@@ -14,3 +14,6 @@ Bugfixes
 
 * Added a system check warning if the old ``TEMPLATE_*`` settings are defined
   in addition to the new ``TEMPLATES`` setting.
+
+* Fixed ``EmailMessage.attach_file()`` on Python 3 when attaching text files
+  (:ticket:`24623`).

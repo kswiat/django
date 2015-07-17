@@ -309,7 +309,11 @@ class EmailMessage(object):
     def attach_file(self, path, mimetype=None):
         """Attaches a file from the filesystem."""
         filename = os.path.basename(path)
-        with open(path, 'rb') as f:
+        if not mimetype:
+            mimetype, _ = mimetypes.guess_type(filename)
+        basetype, subtype = mimetype.split('/', 1)
+        readmode = 'r' if basetype == 'text' else 'rb'
+        with open(path, readmode) as f:
             content = f.read()
         self.attach(filename, content, mimetype)
 
