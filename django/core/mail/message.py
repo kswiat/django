@@ -34,6 +34,10 @@ class BadHeaderError(ValueError):
     pass
 
 
+class SuspiciousMIMEType(Exception):
+    pass
+
+
 # Copied from Python 3.2+ standard library, with the following modifications:
 # * Used cached hostname for performance.
 # TODO: replace with email.utils.make_msgid(.., domain=DNS_NAME) when dropping
@@ -311,10 +315,16 @@ class EmailMessage(object):
         filename = os.path.basename(path)
         if not mimetype:
             mimetype, _ = mimetypes.guess_type(filename)
+            if not mimetype:
+                mimetype = DEFAULT_ATTACHMENT_MIME_TYPE
         basetype, subtype = mimetype.split('/', 1)
-        readmode = 'r' if basetype == 'text' else 'rb'
-        with open(path, readmode) as f:
-            content = f.read()
+        read_mode = 'r' if basetype == 'text' else 'rb'
+        with open(path, read_mode) as f:
+            try:
+                content = f.read()
+            except UnicodeDecodeError:
+                raise SuspiciousMIMEType("Specified mimetype '%s' suggests, that '%s' is a text file, but it looks like"
+                                         " it is a binary." % (mimetype, filename))
         self.attach(filename, content, mimetype)
 
     def _create_message(self, msg):
